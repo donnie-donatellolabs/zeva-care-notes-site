@@ -92,9 +92,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "::warning::Rolled-back content is identical to current — nothing to publish."
           else
-            git commit -m "Rollback: restore site to $PREV (post-deploy health check failed)
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+            git commit -m "Rollback: restore site to $PREV (post-deploy health check failed)" -m "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
             git push origin HEAD:main
             echo "↩ Pushed rollback commit restoring $PREV — fresh deploy will publish it."
           fi
