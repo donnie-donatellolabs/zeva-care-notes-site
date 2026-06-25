@@ -38,15 +38,21 @@ jobs:
       prev_sha: ${{ steps.prev.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # need HEAD~1 to resolve the rollback target
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
 
       - name: Capture previous good commit (rollback target)
         id: prev
         run: |
-          PREV=$(git rev-parse HEAD~1 2>/dev/null || true)
-          echo "sha=$PREV" >> "$GITHUB_OUTPUT"
-          echo "Rollback target: ${PREV:-<none>}"
+          if PREV=$(git rev-parse --verify --quiet HEAD~1); then
+            echo "sha=$PREV" >> "$GITHUB_OUTPUT"
+            echo "Rollback target: $PREV"
+          else
+            echo "sha=" >> "$GITHUB_OUTPUT"
+            echo "Rollback target: <none>"
+          fi
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
