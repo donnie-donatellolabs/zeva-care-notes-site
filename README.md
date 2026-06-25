@@ -1,0 +1,20 @@
+# zeva-care-notes-site — public deploy target
+
+**Generated artifact, not source.** This repository holds only the compiled,
+**NON-PHI** static page for Zeva Care (the PA clinical-note composition aid) and
+its autonomous GitHub Pages deploy pipeline.
+
+- **Source of truth:** the private repo `donnie-donatellolabs/zeva-care-notes`.
+- **Why a separate repo:** GitHub Pages isn't available on private repos under the
+  current plan. Keeping the deploy target public (and PHI-free by construction —
+  this is exactly what the scope means by "the frontend ships NON-PHI static assets
+  only, so the static host never sees PHI") lets the app deploy live over HTTPS
+  while the spec, prototype, and all source stay private.
+- **Contents:** `site/` (built `index.html` + hashed assets + `health.json`),
+  `scripts/healthcheck.mjs`, and `.github/workflows/pages.yml` (deploy → post-deploy
+  health check → auto-rollback). No PHI, no secrets.
+- **Custom domain (`zevacare.co`):** add a `CNAME` to `site/` and point the apex DNS
+  at GitHub Pages. Until then the live URL is the project page below.
+
+Live: https://donnie-donatellolabs.github.io/zeva-care-notes-site/
+Health: https://donnie-donatellolabs.github.io/zeva-care-notes-site/health.json

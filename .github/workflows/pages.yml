@@ -1,0 +1,88 @@
+name: Deploy Pages
+
+# Public DEPLOY TARGET for Zeva Care's NON-PHI static site. Source-of-truth lives
+# in the private repo donnie-donatellolabs/zeva-care-notes; this repo holds only
+# the compiled public page (zero PHI, zero secrets). Autonomous: every push
+# deploys to prod over HTTPS, post-deploy health check, auto-rollback to the
+# previous commit on failure. NO human approval gate.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_health_fail:
+        description: "Force the post-deploy health check to fail (demonstrates auto-rollback)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-prod
+  cancel-in-progress: false
+
+env:
+  LIVE_URL: https://donnie-donatellolabs.github.io/zeva-care-notes-site
+
+jobs:
+  deploy:
+    name: prod deploy → post-deploy health check
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    outputs:
+      prev_sha: ${{ steps.prev.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+
+      - name: Capture previous good commit (rollback target)
+        id: prev
+        run: |
+          PREV=$(git rev-parse HEAD~1 2>/dev/null || true)
+          echo "sha=$PREV" >> "$GITHUB_OUTPUT"
+          echo "Rollback target: ${PREV:-<none>}"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - name: Deploy to prod (GitHub Pages)
+        id: pages
+        uses: actions/deploy-pages@v4
+
+      - name: Post-deploy health check (auto-rollback trigger)
+        env:
+          FORCE_HEALTHCHECK_FAIL: ${{ inputs.force_health_fail && '1' || '0' }}
+        run: node scripts/healthcheck.mjs "$LIVE_URL/health.json" --retries 12 --delay-ms 5000
+
+  rollback:
+    name: Auto-rollback to last good commit
+    needs: deploy
+    if: failure() && needs.deploy.outputs.prev_sha != ''
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.deploy.outputs.prev_sha }}
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - name: Re-deploy last-good (rollback)
+        uses: actions/deploy-pages@v4
+      - name: Confirm rollback healthy
+        run: node scripts/healthcheck.mjs "https://donnie-donatellolabs.github.io/zeva-care-notes-site/health.json" --retries 12 --delay-ms 5000
+      - name: Mark workflow failed (rolled back)
+        run: |
+          echo "::error::Post-deploy health check failed — production rolled back to ${{ needs.deploy.outputs.prev_sha }}."
+          exit 1
