@@ -72,22 +72,32 @@ jobs:
     needs: deploy
     if: failure() && needs.deploy.outputs.prev_sha != ''
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
+    # GitOps rollback: restore the prior good site/ and push. That push triggers a
+    # FRESH deploy run (separate from this one) that publishes the good content —
+    # avoiding the "two github-pages artifacts in one run" conflict that a second
+    # in-run deploy hits. Needs write access to push the revert.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.deploy.outputs.prev_sha }}
-      - uses: actions/setup-node@v4
-        with: { node-version: "22" }
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-      - name: Re-deploy last-good (rollback)
-        uses: actions/deploy-pages@v4
-      - name: Confirm rollback healthy
-        run: node scripts/healthcheck.mjs "https://donnie-donatellolabs.github.io/zeva-care-notes-site/health.json" --retries 12 --delay-ms 5000
+          fetch-depth: 0
+      - name: Restore last-good site and push (triggers fresh deploy)
+        env:
+          PREV: ${{ needs.deploy.outputs.prev_sha }}
+        run: |
+          git config user.name "zeva-rollback-bot"
+          git config user.email "rollback@zevacare.co"
+          git checkout "$PREV" -- site
+          if git diff --cached --quiet; then
+            echo "::warning::Rolled-back content is identical to current — nothing to publish."
+          else
+            git commit -m "Rollback: restore site to $PREV (post-deploy health check failed)
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+            git push origin HEAD:main
+            echo "↩ Pushed rollback commit restoring $PREV — fresh deploy will publish it."
+          fi
       - name: Mark workflow failed (rolled back)
         run: |
           echo "::error::Post-deploy health check failed — production rolled back to ${{ needs.deploy.outputs.prev_sha }}."
