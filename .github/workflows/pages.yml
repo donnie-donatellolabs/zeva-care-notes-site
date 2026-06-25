@@ -72,30 +72,36 @@ jobs:
     needs: deploy
     if: failure() && needs.deploy.outputs.prev_sha != ''
     runs-on: ubuntu-latest
-    # GitOps rollback: restore the prior good site/ and push. That push triggers a
-    # FRESH deploy run (separate from this one) that publishes the good content —
-    # avoiding the "two github-pages artifacts in one run" conflict that a second
-    # in-run deploy hits. Needs write access to push the revert.
+    # GitOps rollback: restore the prior good site/ and push (source truth), then
+    # explicitly re-dispatch the deploy so the GOOD content is actually re-published.
+    # A second deploy-pages in THIS run fails ("two github-pages artifacts"), and a
+    # GITHUB_TOKEN *push* does not auto-trigger a workflow — so we must dispatch the
+    # redeploy ourselves (workflow_dispatch via the API does run under GITHUB_TOKEN).
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Restore last-good site and push (triggers fresh deploy)
+      - name: Restore last-good site, push, and re-dispatch deploy
         env:
           PREV: ${{ needs.deploy.outputs.prev_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "zeva-rollback-bot"
           git config user.email "rollback@zevacare.co"
           git checkout "$PREV" -- site
           if git diff --cached --quiet; then
-            echo "::warning::Rolled-back content is identical to current — nothing to publish."
+            echo "::warning::Rolled-back content is identical to current — nothing to restore."
           else
             git commit -m "Rollback: restore site to $PREV (post-deploy health check failed)" -m "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
             git push origin HEAD:main
-            echo "↩ Pushed rollback commit restoring $PREV — fresh deploy will publish it."
+            echo "↩ Restored source to $PREV."
           fi
+          # Re-publish the good content (GITHUB_TOKEN push won't auto-trigger a run).
+          gh workflow run pages.yml --ref main
+          echo "↩ Re-dispatched deploy to publish the rolled-back content."
       - name: Mark workflow failed (rolled back)
         run: |
           echo "::error::Post-deploy health check failed — production rolled back to ${{ needs.deploy.outputs.prev_sha }}."

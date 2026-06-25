@@ -16,5 +16,15 @@ its autonomous GitHub Pages deploy pipeline.
 - **Custom domain (`zevacare.co`):** add a `CNAME` to `site/` and point the apex DNS
   at GitHub Pages. Until then the live URL is the project page below.
 
+## Auto-rollback
+
+`pages.yml` deploys, then runs a post-deploy health check against the live
+`health.json`. On failure the `rollback` job restores `site/` to the previous
+commit, pushes it (source truth), and **re-dispatches** the deploy workflow to
+re-publish the good content. The re-dispatch is required because a second
+`deploy-pages` in the same run conflicts on the `github-pages` artifact, and a
+`GITHUB_TOKEN` push does not auto-trigger a workflow run. Use the workflow's
+`force_health_fail` input to exercise this end-to-end.
+
 Live: https://donnie-donatellolabs.github.io/zeva-care-notes-site/
 Health: https://donnie-donatellolabs.github.io/zeva-care-notes-site/health.json
