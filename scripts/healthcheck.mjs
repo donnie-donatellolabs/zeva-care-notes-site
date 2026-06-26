@@ -3,19 +3,25 @@
  * Health-check CLI used for BOTH the staging smoke test and the post-deploy
  * production check. Fetches a URL, validates the health contract (NO PHI —
  * liveness/version only), and exits non-zero on failure so the pipeline goes RED
- * and triggers auto-rollback. Mirrors src/health.ts#isHealthy.
+ * and triggers auto-rollback. Mirrors src/health.ts#isHealthy / #isWorkOSWired.
  *
- * Usage: node scripts/healthcheck.mjs <url> [--retries N] [--delay-ms M]
+ * Usage: node scripts/healthcheck.mjs <url> [--retries N] [--delay-ms M] [--require-workos]
+ *        --require-workos  also assert the WorkOS-wired marker (auth:"workos") — the
+ *                          deployed bundle is the auth-live build, not a stale/inert
+ *                          one. Without it, a liveness-only build could ship green.
  *        FORCE_HEALTHCHECK_FAIL=1 forces failure (used to demonstrate rollback).
  */
 function isHealthy(payload) {
   if (typeof payload !== "object" || payload === null) return false;
   return payload.status === "ok" && payload.service === "zeva-care" && typeof payload.version === "string";
 }
+function isWorkOSWired(payload) {
+  return isHealthy(payload) && payload.auth === "workos";
+}
 
 const url = process.argv[2];
 if (!url) {
-  console.error("usage: healthcheck.mjs <url> [--retries N] [--delay-ms M]");
+  console.error("usage: healthcheck.mjs <url> [--retries N] [--delay-ms M] [--require-workos]");
   process.exit(2);
 }
 const arg = (flag, def) => {
@@ -24,6 +30,7 @@ const arg = (flag, def) => {
 };
 const retries = arg("--retries", 5);
 const delayMs = arg("--delay-ms", 4000);
+const requireWorkos = process.argv.includes("--require-workos");
 
 if (process.env.FORCE_HEALTHCHECK_FAIL === "1") {
   console.error(`✖ Health check FORCED to fail (FORCE_HEALTHCHECK_FAIL=1) for ${url}`);
@@ -38,10 +45,18 @@ for (let attempt = 1; attempt <= retries; attempt++) {
     if (res.ok) {
       const body = await res.json();
       if (isHealthy(body)) {
-        console.log(`✓ Healthy: ${url} (version ${body.version})`);
-        process.exit(0);
+        if (requireWorkos && !isWorkOSWired(body)) {
+          console.error(
+            `  attempt ${attempt}: live but NOT WorkOS-wired (auth=${body.auth ?? "<none>"}) — stale/auth-inert bundle`,
+          );
+        } else {
+          const marker = requireWorkos ? ", auth workos" : "";
+          console.log(`✓ Healthy: ${url} (version ${body.version}${marker})`);
+          process.exit(0);
+        }
+      } else {
+        console.error(`  attempt ${attempt}: reachable but unhealthy payload`);
       }
-      console.error(`  attempt ${attempt}: reachable but unhealthy payload`);
     } else {
       console.error(`  attempt ${attempt}: HTTP ${res.status}`);
     }

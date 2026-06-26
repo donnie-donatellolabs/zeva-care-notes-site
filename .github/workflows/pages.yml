@@ -62,10 +62,13 @@ jobs:
         id: pages
         uses: actions/deploy-pages@v4
 
+      # --require-workos: assert the live bundle is the WorkOS-wired build (health.json
+      # auth:"workos"), not a stale/auth-inert one — closes the gap where an auth-inert
+      # bundle could pass a liveness-only check and ship green. A non-PHI public marker.
       - name: Post-deploy health check (auto-rollback trigger)
         env:
           FORCE_HEALTHCHECK_FAIL: ${{ inputs.force_health_fail && '1' || '0' }}
-        run: node scripts/healthcheck.mjs "$LIVE_URL/health.json" --retries 12 --delay-ms 5000
+        run: node scripts/healthcheck.mjs "$LIVE_URL/health.json" --retries 12 --delay-ms 5000 --require-workos
 
   rollback:
     name: Auto-rollback to last good commit
